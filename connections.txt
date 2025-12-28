@@ -1,0 +1,50 @@
+🔌 PART 1 — COMPLETE WIRING (NO AMBIGUITY)
+🔋 POWER (MOST IMPORTANT)
+Battery → Buck Converter
+Battery	Buck
++	IN+
+−	IN−
+
+Adjust buck to exactly 5.0V (multimeter).
+
+Buck → ESP Boards
+Buck OUT	ESP32-CAM	ESP32 DEV
++5V	5V	5V / VIN
+GND	GND	GND
+
+⚠️ ALL GROUNDS MUST BE COMMON
+
+📸 ESP32-CAM → ESP32 DEV (UART IMAGE TRANSFER)
+ESP32-CAM	ESP32 DEV
+TX	GPIO16 (RX2)
+RX	GPIO17 (TX2)
+GND	GND
+
+📌 Short wires only
+📌 UART @ 115200
+
+📏 Ultrasonic Sensor (HC-SR04) → ESP32 DEV
+HC-SR04	ESP32 DEV
+VCC	5V
+GND	GND
+TRIG	GPIO4
+ECHO	GPIO15 (⚠️ via 10k/20k voltage divider!)
+
+⚠️ ECHO is 5V — ESP32 GPIO is 3.3V MAX
+
+🔊 ESP32 DEV → MAX98357 (I2S AMP)
+ESP32 DEV	MAX98357
+5V	VIN
+GND	GND
+GPIO26	BCLK
+GPIO25	LRC (WS)
+GPIO22	DIN
+3.3V	SD
+GND	GAIN
+🔈 MAX98357 → Speaker
+MAX98357	Speaker
+SPK+	+
+SPK−	−
+
+✔ 8Ω, 2–3W speaker only
+❌ NEVER connect speaker directly to ESP32

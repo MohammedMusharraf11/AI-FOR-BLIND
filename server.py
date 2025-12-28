@@ -4,18 +4,20 @@ import base64
 from google import genai
 from PIL import Image
 import io
-import subprocess
-import tempfile
+from elevenlabs.client import ElevenLabs
 import os
 import time
 from dotenv import load_dotenv
-
 load_dotenv()
 
 # ---------------- CONFIG ---------------- #
 
 # Gemini Client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# ElevenLabs Client
+elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+VOICE_ID = os.getenv("VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel voice (default, natural-sounding)
 
 PROMPT = """
 You are an assistive vision system for a visually impaired user.
@@ -31,7 +33,7 @@ app = FastAPI()
 class AnalyzeRequest(BaseModel):
     image: str  # base64 image string
 
-# ---------------- ROUTES ---------------- #
+# ---------------- API ROUTES ---------------- #
 
 @app.get("/health")
 def health_check():
@@ -43,8 +45,8 @@ def health_check():
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    # ---------- IMAGE + GEMINI ----------
     try:
+        # ---- CLEAN BASE64 STRING ---- #
         image_data = req.image.strip()
 
         if image_data.startswith("data:"):
@@ -52,9 +54,11 @@ def analyze(req: AnalyzeRequest):
 
         image_data = "".join(image_data.split())
 
+        # ---- DECODE IMAGE ---- #
         img_bytes = base64.b64decode(image_data)
         image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
+        # ---- GEMINI VISION ---- #
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[PROMPT, image]
@@ -68,51 +72,35 @@ def analyze(req: AnalyzeRequest):
             "message": "Image processing or Gemini call failed"
         }
 
-    # ---------- ESPEAK-NG → PCM ----------
-    wav_path = None
-    pcm_path = None
-
+    # ---- TEXT TO SPEECH (ELEVENLABS) ---- #
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as wav_file:
-            wav_path = wav_file.name
-
-        with tempfile.NamedTemporaryFile(suffix=".pcm", delete=False) as pcm_file:
-            pcm_path = pcm_file.name
-
-        # Generate WAV using espeak-ng
-        subprocess.run(
-            ["espeak-ng", "-v", "en-us", "-s", "150", "-w", wav_path, text],
-            check=True
+        # Convert text to speech with PCM format for ESP32
+        audio_generator = elevenlabs_client.text_to_speech.convert(
+            text=text,
+            voice_id=VOICE_ID,
+            model_id="eleven_multilingual_v2",
+            output_format="pcm_16000"  # PCM 16-bit, Mono, 16kHz for ESP32
         )
-
-        # Convert WAV → raw PCM (16-bit, 16kHz, mono)
-        subprocess.run(
-            ["sox", wav_path, "-t", "raw", "-r", "16000", "-b", "16", "-c", "1", pcm_path],
-            check=True
-        )
-
-        with open(pcm_path, "rb") as f:
-            audio_bytes = f.read()
-
+        
+        # Collect all audio chunks
+        audio_bytes = b"".join(audio_generator)
+        
+        # Convert to base64
         audio_b64 = base64.b64encode(audio_bytes).decode()
-
+        
+        char_count = len(text)
+        
     except Exception as e:
         return {
             "error": str(e),
-            "message": "espeak-ng TTS failed",
-            "text": text
+            "message": "ElevenLabs TTS failed",
+            "text": text  # Still return text even if TTS fails
         }
-
-    finally:
-        if wav_path and os.path.exists(wav_path):
-            os.remove(wav_path)
-        if pcm_path and os.path.exists(pcm_path):
-            os.remove(pcm_path)
 
     return {
         "text": text,
         "audio": audio_b64,
-        "char_count": len(text)
+        "char_count": char_count
     }
 
 # ---------------- RUN ---------------- #

@@ -4,7 +4,8 @@ import base64
 from google import genai
 from PIL import Image
 import io
-from elevenlabs.client import ElevenLabs
+import subprocess
+import tempfile
 import os
 import time
 from dotenv import load_dotenv
@@ -14,10 +15,6 @@ load_dotenv()
 
 # Gemini Client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-
-# ElevenLabs Client
-elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
-VOICE_ID = os.getenv("VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel voice (default, natural-sounding)
 
 PROMPT = """
 You are an assistive vision system for a visually impaired user.
@@ -72,18 +69,26 @@ def analyze(req: AnalyzeRequest):
             "message": "Image processing or Gemini call failed"
         }
 
-    # ---- TEXT TO SPEECH (ELEVENLABS) ---- #
+    # ---- TEXT TO SPEECH (ESPEAK-NG) ---- #
     try:
-        # Convert text to speech with PCM format for ESP32
-        audio_generator = elevenlabs_client.text_to_speech.convert(
-            text=text,
-            voice_id=VOICE_ID,
-            model_id="eleven_multilingual_v2",
-            output_format="pcm_16000"  # PCM 16-bit, Mono, 16kHz for ESP32
+        # espeak-ng command: Generate WAV audio (PCM 16-bit, Mono, 16kHz compatible with ESP32)
+        # --stdout: Output to stdout
+        # -v en-us: English US voice
+        # -s 150: Speed (words per minute)
+        result = subprocess.run(
+            [
+                "espeak-ng",
+                "-v", "en-us",
+                "-s", "150",
+                "--stdout",
+                text
+            ],
+            check=True,
+            capture_output=True
         )
         
-        # Collect all audio chunks
-        audio_bytes = b"".join(audio_generator)
+        # Get audio bytes from stdout (WAV format with PCM data)
+        audio_bytes = result.stdout
         
         # Convert to base64
         audio_b64 = base64.b64encode(audio_bytes).decode()
@@ -93,7 +98,7 @@ def analyze(req: AnalyzeRequest):
     except Exception as e:
         return {
             "error": str(e),
-            "message": "ElevenLabs TTS failed",
+            "message": "espeak-ng TTS failed",
             "text": text  # Still return text even if TTS fails
         }
 
